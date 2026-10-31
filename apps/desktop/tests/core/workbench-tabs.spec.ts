@@ -138,7 +138,9 @@ test("adds singleton tool tabs, closes to a neighbor, and keeps an empty chooser
     const terminal = window.getByTestId("integrated-terminal");
     await expect(terminal).toBeVisible();
     await terminal.locator(".xterm").click();
-    await window.keyboard.type("printf 'WORKBENCH_'\"READY\\n\"; pwd");
+    // Split the marker through node so the typed command echo never contains the
+    // contiguous output the assertion waits for; works in POSIX shells and cmd.exe.
+    await window.keyboard.type(`node -p "'WORKBENCH_'+'READY'"`);
     await window.keyboard.press("Enter");
     await expect(terminal.locator(".xterm-rows")).toContainText("WORKBENCH_READY");
     await captureToolWidths(harness, window, testInfo, "Terminal");
@@ -359,9 +361,15 @@ test("closing the Terminal view preserves its live shell", async () => {
     await addTool(window, "Terminal");
     const terminal = window.getByTestId("integrated-terminal");
     await terminal.locator(".xterm").click();
-    await window.keyboard.type(
-      "export PI_GUI_WORKBENCH_CANARY=retained; printf 'SHELL_'\"READY\\n\"",
-    );
+    if (process.platform === "win32") {
+      await window.keyboard.type(
+        "set PI_GUI_WORKBENCH_CANARY=retained&& node -p \"'SHELL_'+'READY'\"",
+      );
+    } else {
+      await window.keyboard.type(
+        "export PI_GUI_WORKBENCH_CANARY=retained; printf 'SHELL_'\"READY\\n\"",
+      );
+    }
     await window.keyboard.press("Enter");
     await expect(terminal.locator(".xterm-rows")).toContainText("SHELL_READY");
     await window.getByRole("button", { name: "Close Terminal tab", exact: true }).click();
@@ -369,7 +377,11 @@ test("closing the Terminal view preserves its live shell", async () => {
     await expectActiveTool(window, "Review");
     await addTool(window, "Terminal");
     await terminal.locator(".xterm").click();
-    await window.keyboard.type("printf 'SHELL_%s\\n' \"$PI_GUI_WORKBENCH_CANARY\"");
+    await window.keyboard.type(
+      process.platform === "win32"
+        ? `node -p "'SHELL_'+process.env.PI_GUI_WORKBENCH_CANARY"`
+        : `printf 'SHELL_%s\\n' "$PI_GUI_WORKBENCH_CANARY"`,
+    );
     await window.keyboard.press("Enter");
     await expect(terminal.locator(".xterm-rows")).toContainText("SHELL_retained");
     await expect(window.getByTestId("terminal-tab")).toHaveCount(1);

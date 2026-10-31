@@ -300,7 +300,11 @@ test("choosing another review checkout preserves the task and terminal checkout"
     await selectSidePanel(window, "Terminal");
     const terminal = window.getByTestId("integrated-terminal");
     await terminal.locator(".xterm").click();
-    await window.keyboard.type("printf 'TASK_CWD=%s\\n' \"${PWD##*/}\"");
+    // cmd.exe has no ${PWD##*/} expansion; %CD% prints the full directory, which
+    // still contains the asserted workspace basename after the TASK_CWD= label.
+    await window.keyboard.type(
+      process.platform === "win32" ? "echo TASK_CWD=%CD%" : `printf 'TASK_CWD=%s\\n' "\${PWD##*/}"`,
+    );
     await window.keyboard.press("Enter");
     await expect(terminal.locator(".xterm-rows")).toContainText(
       `TASK_CWD=${basename(workspace.path)}`,

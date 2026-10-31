@@ -39,7 +39,9 @@ test("opens task terminals with persistent output and independent shell tabs", a
     await expect(window.getByTestId("terminal-tab")).toHaveCount(1);
 
     await terminal.locator(".xterm").click();
-    await window.keyboard.type("printf 'PI_TERMINAL_OK\\n'; pwd");
+    await window.keyboard.type(
+      process.platform === "win32" ? "echo PI_TERMINAL_OK& cd" : "echo PI_TERMINAL_OK; pwd",
+    );
     await window.keyboard.press("Enter");
     await expect(terminal.locator(".xterm-rows")).toContainText("PI_TERMINAL_OK", {
       timeout: 15_000,
@@ -210,13 +212,40 @@ test("writes an oversized terminal paste in chunks instead of dropping it", asyn
     // the child by the time Playwright's Enter keypress resolves.
     const receiverReady = "PI_TERMINAL_RECEIVER_READY";
     const receiverDone = "PI_TERMINAL_RECEIVER_DONE";
-    const receiverScript = [
-      'const fs = require("node:fs")',
-      'const output = fs.createWriteStream("payload.txt")',
-      "process.stdin.pipe(output)",
-      'process.stdout.write("PI_TERMINAL_RECEIVER_" + "READY\\n")',
-    ].join(";");
-    await window.keyboard.type(`node -e '${receiverScript}'; echo PI_TERMINAL_RECEIVER_""DONE`);
+    // POSIX finishes on stdin EOF (Ctrl+D). ConPTY does not translate Ctrl+Z into
+    // a pipe EOF for node, so on Windows the receiver flushes and announces done
+    // itself once the end marker has streamed through. The tail buffer guards
+    // against the marker straddling a chunk boundary.
+    const receiverScript =
+      process.platform === "win32"
+        ? [
+            'const fs = require("node:fs")',
+            'const output = fs.createWriteStream("payload.txt")',
+            "let done = false",
+            "let tail = Buffer.alloc(0)",
+            "process.stdin.on(`data`, (chunk) => {",
+            "  output.write(chunk)",
+            "  tail = Buffer.concat([tail, chunk]).subarray(-32)",
+            '  if (!done && tail.includes("ENDMARKER")) {',
+            "    done = true",
+            '    output.end(() => process.stdout.write("PI_TERMINAL_RECEIVER_" + "DONE\\n"))',
+            "  }",
+            "})",
+            'process.stdout.write("PI_TERMINAL_RECEIVER_" + "READY\\n")',
+          ].join(";")
+        : [
+            'const fs = require("node:fs")',
+            'const output = fs.createWriteStream("payload.txt")',
+            "process.stdin.pipe(output)",
+            'process.stdout.write("PI_TERMINAL_RECEIVER_" + "READY\\n")',
+          ].join(";");
+    // cmd.exe keeps single quotes literal, so the POSIX form would hand node a
+    // syntactically invalid -e argument; pass the script in double quotes there.
+    await window.keyboard.type(
+      process.platform === "win32"
+        ? `node -e "${receiverScript.replace(/"/g, "'")}"`
+        : `node -e '${receiverScript}'; echo PI_TERMINAL_RECEIVER_""DONE`,
+    );
     await window.keyboard.press("Enter");
     await expect(terminal.locator(".xterm-rows")).toContainText(receiverReady, { timeout: 15_000 });
 
@@ -231,10 +260,15 @@ test("writes an oversized terminal paste in chunks instead of dropping it", asyn
       .poll(() => readFile(payloadPath, "utf8").catch(() => ""), { timeout: 60_000 })
       .toContain("ENDMARKER");
 
-    await window.keyboard.press("Control+D");
+    if (process.platform !== "win32") {
+      await window.keyboard.press("Control+D");
+    }
     // The done line prints only after xterm has drawn the echo ahead of it.
     await expect(terminal.locator(".xterm-rows")).toContainText(receiverDone, { timeout: 60_000 });
-    expect(await readFile(payloadPath, "utf8")).toBe(payload);
+    const written = await readFile(payloadPath, "utf8");
+    // ConPTY's cooked line input translates pasted LF endings to CRLF; the
+    // chunking proof is that every line arrived exactly once and in order.
+    expect(process.platform === "win32" ? written.replace(/\r\n/g, "\n") : written).toBe(payload);
   } finally {
     await harness.close();
   }

@@ -573,7 +573,7 @@ test("opens independent terminals for the same thread in separate windows", asyn
     const firstTerminal = firstWindow.getByTestId("integrated-terminal");
     await expect(firstTerminal).toBeVisible();
     await firstTerminal.locator(".xterm").click();
-    await firstWindow.keyboard.type("printf 'FIRST_WINDOW_TERMINAL\\n'");
+    await firstWindow.keyboard.type("echo FIRST_WINDOW_TERMINAL");
     await firstWindow.keyboard.press("Enter");
     await expect(firstTerminal.locator(".xterm-rows")).toContainText("FIRST_WINDOW_TERMINAL", {
       timeout: 15_000,
@@ -583,7 +583,7 @@ test("opens independent terminals for the same thread in separate windows", asyn
     const secondTerminal = secondWindow.getByTestId("integrated-terminal");
     await expect(secondTerminal).toBeVisible();
     await secondTerminal.locator(".xterm").click();
-    await secondWindow.keyboard.type("printf 'SECOND_WINDOW_TERMINAL\\n'");
+    await secondWindow.keyboard.type("echo SECOND_WINDOW_TERMINAL");
     await secondWindow.keyboard.press("Enter");
     await expect(secondTerminal.locator(".xterm-rows")).toContainText("SECOND_WINDOW_TERMINAL", {
       timeout: 15_000,
